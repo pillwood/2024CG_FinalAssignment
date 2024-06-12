@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <title>SolarSystem</title>
+    </head>
+    <body>
+        <script type="x-shader/x-vertex" id="phongVS">
+            varying vec3 fNormal, fWorldPos;
+            varying vec2 fTexCoord;
+    
+            void main(){
+                gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    
+                fNormal = normalize(normalMatrix * normal);
+                fWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;
+                fTexCoord = uv;
+            }
+        </script>
+        <script type="x-shader/x-fragment" id="phongFS">
+            precision mediump float;
+
+            uniform vec3 lightDir;
+            uniform vec4 lightAmbient, lightDiffuse, lightSpecular;
+            uniform vec4 matAmbient, matDiffuse, matSpecular;
+            uniform float matShininess;
+
+            varying vec3 fNormal, fWorldPos;
+            varying vec2 fTexCoord;
+            uniform sampler2D texImage;
+
+            void main(){
+                vec4 ambient = lightAmbient * matAmbient;
+
+                vec3 N = normalize(fNormal);
+                vec3 L = normalize(lightDir);
+                float kd = max(dot(L, N), 0.15);
+                vec4 diffuse = kd * lightDiffuse * matDiffuse;
+
+                vec3 V = normalize(-fWorldPos);
+                vec3 H = normalize(L + V);
+                float ks = pow(max(dot(N,H), 0.15), matShininess);
+                vec4 specular = ks * lightSpecular * matSpecular;
+
+                gl_FragColor = (ambient + diffuse + specular) * texture2D(texImage, fTexCoord);
+                gl_FragColor.a = 1.0;
+            }
+        </script>
+        <script type="x-shader/x-vertex" id="phongPointVS">
+            varying vec3 fNormal, fWorldPos;
+            varying vec2 fTexCoord;
+    
+            void main(){
+                gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    
+                fNormal = normalize(normalMatrix * normal);
+                fWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;
+                fTexCoord = uv;
+            }
+        </script>
+        <script type="x-shader/x-fragment" id="phongPointFS">
+            precision mediump float;
+        
+            uniform vec3 lightPos;
+            uniform vec4 lightAmbient, lightDiffuse, lightSpecular;
+            uniform vec4 matAmbient, matDiffuse, matSpecular;
+            uniform float matShininess;
+        
+            varying vec3 fNormal, fWorldPos;
+            varying vec2 fTexCoord;
+            uniform sampler2D texImage;
+        
+            void main() {
+                vec4 ambient = lightAmbient * matAmbient;
+        
+                vec3 N = normalize(fNormal);
+                vec3 L = normalize(lightPos - fWorldPos); // Remove the scaling
+                float kd = max(dot(L, N), 0.1);
+                vec4 diffuse = kd * lightDiffuse * matDiffuse;
+        
+                vec3 V = normalize(cameraPosition - fWorldPos); // Correct the view direction
+                vec3 H = normalize(L + V);
+                float ks = pow(max(dot(N, H), 0.1), matShininess);
+                vec4 specular = ks * lightSpecular * matSpecular;
+        
+                gl_FragColor = (ambient + diffuse + specular) * texture2D(texImage, fTexCoord);
+                gl_FragColor.a = 1.0;
+            }
+        </script>
+        <script type="importmap">
+            {
+                "imports": {
+                    "three": "https://unpkg.com/three/build/three.module.js",
+                    "three/addons/": "https://unpkg.com/three/examples/jsm/"
+                }
+            }
+        </script>
+        <script type="module">
+            import * as THREE from 'three';
+            import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+
+            let scene, camera, renderer, controls;
+            var cameraPos = new THREE.Vector3(0, 100, 100);
+            var sunlight = new THREE.Vector3(0,0,0);
+            let sun, planets;
+
+            init();
+            animate();
+
+            function init(){
+                scene = new THREE.Scene();
+
+                //Camera initialize
+                const aspectRatio = window.innerWidth / window.innerHeight;
+                camera = new THREE.PerspectiveCamera(90, aspectRatio, 0.001, 100000);
+                camera.position.x = cameraPos.x;
+                camera.position.y = cameraPos.y;
+                camera.position.z = cameraPos.z;
+                camera.lookAt(0,0,0);
+
+                //Renderer initialize
+                renderer = new THREE.WebGLRenderer();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+                document.body.appendChild(renderer.domElement);
+                
+                //orbit control
+                controls = new OrbitControls(camera, renderer.domElement);
+                controls.maxPolarAngle = Math.PI / 2;
+
+                //textureLoader
+                const textureLoader = new THREE.TextureLoader();
+
+                //planetTexture
+                const sunTexture = textureLoader.load("./image/sun.jpg");
+                const mercuryTexture = textureLoader.load("./image/mercury.jpg");
+                const venusTexture = textureLoader.load("./image/venus.jpg");
+                const earthTexture = textureLoader.load('image/earth.jpg');
+                const marsTexture = textureLoader.load("./image/mars.jpg");
+                const jupiterTexture = textureLoader.load("./image/jupiter.jpg");
+                const saturnTexture = textureLoader.load("./image/saturn.jpg");
+                const uranusTexture = textureLoader.load("./image/uranus.jpg");
+                const neptuneTexture = textureLoader.load("./image/neptune.jpg");
+                const plutoTexture = textureLoader.load("./image/pluto.jpg");
+                const saturnRingTexture = textureLoader.load("./image/saturn_ring.png");
+                const uranusRingTexture = textureLoader.load("./image/uranus_ring.png");
+                
+                //BackgroundImage
+                const starTexture = textureLoader.load("image\\stars.jpg");
+                const BGtexture = new THREE.CubeTextureLoader().load([
+                    'image\\stars.jpg',
+                    'image\\stars.jpg',
+                    'image\\stars.jpg',
+                    'image\\stars.jpg',
+                    'image\\stars.jpg',
+                    'image\\stars.jpg'
+                ]);
+                scene.background = BGtexture;
+
+                //Sun & SunLight
+                const sungeo = new THREE.SphereGeometry(15, 32, 32);
+                const sunMaterial = new THREE.MeshBasicMaterial({
+                  map: sunTexture,
+                });
+                sun = new THREE.Mesh(sungeo, sunMaterial);
+                scene.add(sun);
+
+                //Planet Gen
+                const path_of_planets = [];
+                
+                const generatePlanet = (size, planetTexture, x, ring, orbitParams) => {
+                    const planetGeometry = new THREE.SphereGeometry(size, 32, 32);
+                    const planetMaterial = new THREE.ShaderMaterial({
+                        uniforms:{
+                            lightPos: { value: sunlight },
+                            lightAmbient: {value: [0.0, 0.0, 0.0, 1.0]},
+                            lightDiffuse: {value: [1.0, 1.0, 1.0, 1.0]},
+                            lightSpecular: {value: [1.0, 1.0, 1.0, 1.0]},
+                            matAmbient: {value: [1.0, 1.0, 1.0, 1.0]},
+                            matDiffuse: {value: [1.0, 1.0, 1.0, 1.0]},
+                            matSpecular: {value: [1.0, 1.0, 1.0, 1.0]},
+                            matShininess: {value: 100},
+                            texImage: { value: planetTexture },
+                            cameraPosition: { value: camera.position } // Pass the camera position
+                        },
+                        vertexShader: document.getElementById("phongVS").textContent,
+                        fragmentShader: document.getElementById("phongPointFS").textContent
+                    });
+                
+                    const planet = new THREE.Mesh(planetGeometry, planetMaterial);
+                    const planetObj = new THREE.Object3D();
+                    planet.position.set(x, 0, 0);
+                
+                    if (ring) {
+                        const ringGeo = new THREE.RingGeometry(ring.innerRadius, ring.outerRadius, 32);
+                        const ringMat = new THREE.MeshBasicMaterial({
+                            map: ring.ringmat,
+                            side: THREE.DoubleSide,
+                        });
+                        const ringMesh = new THREE.Mesh(ringGeo, ringMat);
+                        planetObj.add(ringMesh);
+                        ringMesh.position.set(x, 0, 0);
+                        ringMesh.rotation.x = -0.5 * Math.PI;
+                    }
+
+                    scene.add(planetObj);
+                    planetObj.add(planet);
+
+                    if (orbitParams) {
+                        createEllipticalOrbit(orbitParams.semiMajorAxis, orbitParams.eccentricity, orbitParams.inclination, 0x333333, 64);
+                    }
+
+                    planetObj.orbitParams = orbitParams;
+                    planetObj.orbitTheta = 0;
+
+                    return {
+                        planetObj: planetObj,
+                        planet: planet,
+                    };
+                };
+
+                const createEllipticalOrbit = (a, e, inclination, color, segments) => {
+                    const points = [];
+                    const b = a * Math.sqrt(1 - e * e);
+                    for (let i = 0; i <= 360; i += 360 / segments) {
+                        const theta = (i * Math.PI) / 180;
+                        points.push(new THREE.Vector3(a * Math.cos(theta), 0, b * Math.sin(theta)));
+                    }
+    
+                    const ellipseGeometry = new THREE.BufferGeometry().setFromPoints(points);
+                    const ellipseMaterial = new THREE.LineBasicMaterial({ color: color });
+                    const ellipse = new THREE.LineLoop(ellipseGeometry, ellipseMaterial);
+    
+                    ellipse.rotation.x = THREE.MathUtils.degToRad(inclination);
+    
+                    scene.add(ellipse);
+                };
+
+                planets = [
+                    {
+                        ...generatePlanet(3.2, mercuryTexture, 38.6, null, 
+                        { semiMajorAxis: 38.6, eccentricity: 0.2056, inclination: 7.01 }),
+                        rotaing_speed_around_sun: 0.004,
+                        self_rotation_speed: 0.004,
+                    },
+                    {
+                        ...generatePlanet(5.8, venusTexture, 72.4, null, 
+                        { semiMajorAxis: 72.4, eccentricity: 0.0068, inclination: 3.39 }),
+                        rotaing_speed_around_sun: 0.015,
+                        self_rotation_speed: 0.002,
+                    },
+                    {
+                        ...generatePlanet(6, earthTexture, 100, null, 
+                        { semiMajorAxis: 100, eccentricity: 0.0167, inclination: 0.0 }),
+                        rotaing_speed_around_sun: 0.01,
+                        self_rotation_speed: 0.02,
+                    },
+                    {
+                        ...generatePlanet(4, marsTexture, 152, null, 
+                        { semiMajorAxis: 152, eccentricity: 0.0934, inclination: 1.85 }),
+                        rotaing_speed_around_sun: 0.008,
+                        self_rotation_speed: 0.018,
+                    },
+                    {
+                        ...generatePlanet(12, jupiterTexture, 520, null, 
+                        { semiMajorAxis: 520, eccentricity: 0.0484, inclination: 1.31 }),
+                        rotaing_speed_around_sun: 0.002,
+                        self_rotation_speed: 0.04,
+                    },
+                    {
+                        ...generatePlanet(10, saturnTexture, 958, {
+                            innerRadius: 10,
+                            outerRadius: 20,
+                            ringmat: saturnRingTexture,
+                        },{ semiMajorAxis: 958, eccentricity: 0.0541, inclination: 2.49 }),
+                        rotaing_speed_around_sun: 0.0009,
+                        self_rotation_speed: 0.038,
+                    },
+                    {
+                        ...generatePlanet(7, uranusTexture, 1920, {
+                            innerRadius: 7,
+                            outerRadius: 12,
+                            ringmat: uranusRingTexture,
+                        },
+                        { semiMajorAxis: 1920, eccentricity: 0.0472, inclination: 0.77 }),
+                        rotaing_speed_around_sun: 0.0004,
+                        self_rotation_speed: 0.03,
+                    },
+                    {
+                        ...generatePlanet(7, neptuneTexture, 3010, null,
+                        { semiMajorAxis: 3010, eccentricity: 0.0086, inclination: 1.77 }),
+                        rotaing_speed_around_sun: 0.0001,
+                        self_rotation_speed: 0.032,
+                    },
+                    {
+                        ...generatePlanet(2.8, plutoTexture, 3920, null, 
+                        { semiMajorAxis: 3920, eccentricity: 0.2488, inclination: 17 }),
+                        rotaing_speed_around_sun: 0.0007,
+                        self_rotation_speed: 0.008,
+                    },
+                ];
+            }
+
+            function onWindowResize(){
+                renderer.setSize(window.innerWidth, window.innerHeight);
+
+                //3D orthographic viewing
+                const aspectRatio = window.innerWidth / window.innerHeight;
+                camera = new THREE.PerspectiveCamera(90, aspectRatio, 0.001, 1000);
+                camera.position.x = cameraPos.x;
+                camera.position.y = cameraPos.y;
+                camera.position.z = cameraPos.z;
+                camera.lookAt(0,0,0);
+                camera.rotateonWorldAxis(new THREE.Vector3(0, 1, 0,), cameraRotY);
+                camera.updateProjectionMatrix();
+
+                controls.dispose();
+                controls = new OrbitControls(camera, renderer.domElement);
+                controls.maxPolarAngle = Math.PI / 2;
+            }
+
+            function animate(){
+                requestAnimationFrame(animate);
+
+                sun.rotateY(0.01);
+                sunlight=(0,0,0);
+                
+                planets.forEach(
+                    ({ planetObj, planet, rotaing_speed_around_sun, self_rotation_speed }) => {
+                        planet.rotateY(self_rotation_speed);
+
+                        if (planetObj.orbitParams) {
+                            const a = planetObj.orbitParams.semiMajorAxis;
+                            const e = planetObj.orbitParams.eccentricity;
+                            const b = a * Math.sqrt(1 - e * e);
+                            const theta = planetObj.orbitTheta;
+
+                            const x = a * Math.cos(theta);
+                            const z = b * Math.sin(theta);
+
+                            const y = 0;
+                            const rotationMatrix = new THREE.Matrix4().makeRotationX(THREE.MathUtils.degToRad(planetObj.orbitParams.inclination));
+                            const position = new THREE.Vector3(x, y, z).applyMatrix4(rotationMatrix);
+
+                            planetObj.position.set(position.x - a, position.y, position.z);
+                            planetObj.orbitTheta += rotaing_speed_around_sun;
+                        }
+                    }
+                );
+                
+                controls.update();
+                renderer.render(scene, camera);
+            }
+            animate();
+        </script>
+    </body>
+</html>
