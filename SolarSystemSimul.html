@@ -5,6 +5,10 @@
         <title>SolarSystem</title>
     </head>
     <body>
+        <div id="gui" style="position: absolute; top: 10px; left: 10px; z-index: 100;">
+            <button id="EarthCentor">EarthView</button>
+            <button id="SolarSystem">SolarSystemView</button>
+        </div>
         <script type="x-shader/x-vertex" id="phongVS">
             varying vec3 fNormal, fWorldPos;
             varying vec2 fTexCoord;
@@ -100,9 +104,13 @@
             import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 
             let scene, camera, renderer, controls;
-            var cameraPos = new THREE.Vector3(0, 100, 100);
-            var sunlight = new THREE.Vector3(0,0,0);
+            let cameraPos = new THREE.Vector3(0, 100, 100);
+            let sunlight = new THREE.Vector3(0,0,0);
             let sun, planets;
+            let targetCameraPos = cameraPos.clone(); // Target position for smooth transitions
+            let targetLookAt = new THREE.Vector3(0, 0, 0); // Target look at for smooth transitions
+            let CentorPlanet;
+            let changedView = true;
 
             init();
             animate();
@@ -206,7 +214,7 @@
                     planetObj.add(planet);
 
                     if (orbitParams) {
-                        createEllipticalOrbit(orbitParams.semiMajorAxis, orbitParams.eccentricity, orbitParams.inclination, 0x333333, 64);
+                        createEllipticalOrbit(orbitParams.semiMajorAxis, orbitParams.eccentricity, orbitParams.inclination);
                     }
 
                     planetObj.orbitParams = orbitParams;
@@ -217,17 +225,17 @@
                         planet: planet,
                     };
                 };
-
-                const createEllipticalOrbit = (a, e, inclination, color, segments) => {
+                
+                const createEllipticalOrbit = (a, e, inclination) => {
                     const points = [];
                     const b = a * Math.sqrt(1 - e * e);
-                    for (let i = 0; i <= 360; i += 360 / segments) {
+                    for (let i = 0; i <= 360; i += 360 / 128) {
                         const theta = (i * Math.PI) / 180;
                         points.push(new THREE.Vector3(a * Math.cos(theta), 0, b * Math.sin(theta)));
                     }
     
                     const ellipseGeometry = new THREE.BufferGeometry().setFromPoints(points);
-                    const ellipseMaterial = new THREE.LineBasicMaterial({ color: color });
+                    const ellipseMaterial = new THREE.LineBasicMaterial({ color: 0x333333 });
                     const ellipse = new THREE.LineLoop(ellipseGeometry, ellipseMaterial);
     
                     ellipse.rotation.x = THREE.MathUtils.degToRad(inclination);
@@ -318,11 +326,17 @@
                 controls.maxPolarAngle = Math.PI / 2;
             }
 
+            document.getElementById("EarthCentor").onclick = function(){
+                CentorPlanet = 'Earth';
+            };
+            document.getElementById("SolarSystem").onclick = function(){
+                CentorPlanet = 'Sun';
+            };
+
             function animate(){
                 requestAnimationFrame(animate);
 
                 sun.rotateY(0.01);
-                sunlight=(0,0,0);
                 
                 planets.forEach(
                     ({ planetObj, planet, rotaing_speed_around_sun, self_rotation_speed }) => {
@@ -346,7 +360,38 @@
                         }
                     }
                 );
-                
+
+                if (CentorPlanet == 'Earth') {
+                    changedView = true;
+
+                    controls.dispose();
+                    const earthPosition = planets[2].planetObj.position.clone();
+                    earthPosition.x += planets[2].planetObj.orbitParams.semiMajorAxis
+
+                    camera.position.copy(earthPosition);
+            
+                    const sunDirection = new THREE.Vector3().subVectors(new THREE.Vector3(0, 0, 0), earthPosition).normalize();
+                    const SELine = earthPosition.clone().add(sunDirection.multiplyScalar(-1));
+                    console.info(earthPosition);
+                    console.info("sunDirection",sunDirection);
+                    console.info("lookAtPosition",SELine);
+                    camera.lookAt(SELine);
+
+
+                    //camera.lookAt();
+                    
+                    controls.update();
+                } else {
+                    if (changedView) {
+                        camera.position.set(0, 100, 100);
+                        changedView = false;
+                        controls = new OrbitControls(camera, renderer.domElement);
+                        controls.maxPolarAngle = Math.PI / 2;
+                        console.info("initailized");
+                    }
+                    controls.update();
+                    //console.info("EarthPos",planets[1].planetObj.position);
+                }
                 controls.update();
                 renderer.render(scene, camera);
             }
