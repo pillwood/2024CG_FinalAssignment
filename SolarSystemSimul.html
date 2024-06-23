@@ -9,6 +9,10 @@
             <button id="EarthCentor">EarthView</button>
             <button id="SolarSystem">SolarSystemView</button>
         </div>
+        <div id="controls" style="position: absolute; top: 15px; right: 30px; z-index: 100; color: rgb(32, 105, 132);">
+            <input type="range" id="timeRateSlider" min="0.1" max="50" step="0.1" value="1">
+            <label for="timeRateSlider">Time Rate</label>
+        </div>
         <script type="x-shader/x-vertex" id="phongVS">
             varying vec3 fNormal, fWorldPos;
             varying vec2 fTexCoord;
@@ -59,6 +63,7 @@
     
                 fNormal = normalize(normalMatrix * normal);
                 fWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;
+                //fWorldPos = (0,0,0)
                 fTexCoord = uv;
             }
         </script>
@@ -68,6 +73,9 @@
             uniform vec3 lightPos;
             uniform vec4 lightAmbient, lightDiffuse, lightSpecular;
             uniform vec4 matAmbient, matDiffuse, matSpecular;
+
+            uniform vec3 fWorldPosF;
+
             uniform float matShininess;
         
             varying vec3 fNormal, fWorldPos;
@@ -75,20 +83,54 @@
             uniform sampler2D texImage;
         
             void main() {
+                //vec3 FW = fWorldPos + normalize(fWorldPosF);
                 vec4 ambient = lightAmbient * matAmbient;
         
                 vec3 N = normalize(fNormal);
-                vec3 L = normalize(lightPos - fWorldPos); // Remove the scaling
+                vec3 L = normalize(lightPos + cameraPosition - fWorldPos);
                 float kd = max(dot(L, N), 0.1);
                 vec4 diffuse = kd * lightDiffuse * matDiffuse;
         
-                vec3 V = normalize(cameraPosition - fWorldPos); // Correct the view direction
+                vec3 V = normalize(cameraPosition - fWorldPos);
                 vec3 H = normalize(L + V);
                 float ks = pow(max(dot(N, H), 0.1), matShininess);
                 vec4 specular = ks * lightSpecular * matSpecular;
         
                 gl_FragColor = (ambient + diffuse + specular) * texture2D(texImage, fTexCoord);
                 gl_FragColor.a = 1.0;
+            }
+        </script>
+        <script type="x-shader/x-vertex" id="CameraViewVS">
+            uniform mat4 modelViewMatrix;
+            uniform mat4 projectionMatrix;
+            uniform vec3 cameraPosition;
+        
+            attribute vec3 position;
+            attribute vec2 uv;
+        
+            varying vec2 vUv;
+        
+            void main() {
+                vec3 worldPosition = (modelViewMatrix * vec4(position, 1.0)).xyz;
+                vec3 toCamera = normalize(cameraPosition - worldPosition);
+                vec3 right = vec3(modelViewMatrix[0][0], modelViewMatrix[1][0], modelViewMatrix[2][0]);
+                vec3 up = vec3(modelViewMatrix[0][1], modelViewMatrix[1][1], modelViewMatrix[2][1]);
+        
+                vec3 newPosition = right * position.x + up * position.y + worldPosition;
+        
+                gl_Position = projectionMatrix * vec4(newPosition, 1.0);
+                vUv = uv;
+            }
+        </script>
+        
+        <script type="x-shader/x-fragment" id="CameraViewFS">
+            precision mediump float;
+        
+            uniform sampler2D texImage;
+            varying vec2 vUv;
+        
+            void main() {
+                gl_FragColor = texture2D(texImage, vUv);
             }
         </script>
         <script type="importmap">
@@ -103,14 +145,16 @@
             import * as THREE from 'three';
             import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 
+            let x;
             let scene, camera, renderer, controls;
             let cameraPos = new THREE.Vector3(0, 100, 100);
-            let sunlight = new THREE.Vector3(0,0,0);
+            let sunlight = new THREE.Vector3(0,-100,-100);
             let sun, planets;
             let targetCameraPos = cameraPos.clone(); // Target position for smooth transitions
             let targetLookAt = new THREE.Vector3(0, 0, 0); // Target look at for smooth transitions
             let CentorPlanet;
             let changedView = true;
+            let timeRate = 0.1;
 
             init();
             animate();
@@ -139,32 +183,51 @@
                 const textureLoader = new THREE.TextureLoader();
 
                 //planetTexture
-                const sunTexture = textureLoader.load("./image/sun.jpg");
-                const mercuryTexture = textureLoader.load("./image/mercury.jpg");
-                const venusTexture = textureLoader.load("./image/venus.jpg");
-                const earthTexture = textureLoader.load('image/earth.jpg');
-                const marsTexture = textureLoader.load("./image/mars.jpg");
-                const jupiterTexture = textureLoader.load("./image/jupiter.jpg");
-                const saturnTexture = textureLoader.load("./image/saturn.jpg");
-                const uranusTexture = textureLoader.load("./image/uranus.jpg");
-                const neptuneTexture = textureLoader.load("./image/neptune.jpg");
-                const plutoTexture = textureLoader.load("./image/pluto.jpg");
-                const saturnRingTexture = textureLoader.load("./image/saturn_ring.png");
-                const uranusRingTexture = textureLoader.load("./image/uranus_ring.png");
+                const sunTexture = textureLoader.load("./image/Planets/sun.jpg");
+                const mercuryTexture = textureLoader.load("./image/Planets/mercury.jpg");
+                const venusTexture = textureLoader.load("./image/Planets/venus.jpg");
+                const earthTexture = textureLoader.load('image/Planets/earth.jpg');
+                const marsTexture = textureLoader.load("./image/Planets/mars.jpg");
+                const jupiterTexture = textureLoader.load("./image/Planets/jupiter.jpg");
+                const saturnTexture = textureLoader.load("./image/Planets/saturn.jpg");
+                const uranusTexture = textureLoader.load("./image/Planets/uranus.jpg");
+                const neptuneTexture = textureLoader.load("./image/Planets/neptune.jpg");
+                const plutoTexture = textureLoader.load("./image/Planets/pluto.jpg");
+                const saturnRingTexture = textureLoader.load("./image/Planets/saturn_ring.png");
+                const uranusRingTexture = textureLoader.load("./image/Planets/uranus_ring.png");
+                const moonTexture = textureLoader.load('image/Planets/Moon.jpg');
                 
-                //BackgroundImage
-                const starTexture = textureLoader.load("image\\stars.jpg");
-                const BGtexture = new THREE.CubeTextureLoader().load([
-                    'image\\stars.jpg',
-                    'image\\stars.jpg',
-                    'image\\stars.jpg',
-                    'image\\stars.jpg',
-                    'image\\stars.jpg',
-                    'image\\stars.jpg'
-                ]);
-                scene.background = BGtexture;
+                //Sphere Background
+                const starTexture = textureLoader.load("image/Background/stars.jpg", function(texture) {
+                    texture.wrapS = THREE.RepeatWrapping;
+                    texture.wrapT = THREE.RepeatWrapping;
+                    texture.repeat.set(10, 10);
+                });
+                const geometry = new THREE.SphereGeometry(12000, 60, 40);
+                geometry.scale(-1, 1, 1);
+                const material = new THREE.MeshBasicMaterial({
+                    map: starTexture
+                });
+                const sphere = new THREE.Mesh(geometry, material);
+                scene.add(sphere);
 
-                //Sun & SunLight
+                //zodiac halo
+                const haloGeometry = new THREE.SphereGeometry(12000, 320, 1, 0, Math.PI * 2, Math.PI / 2 - 0.25, 0.5);
+                haloGeometry.scale(-1, 1, 1);
+                const zodiacTexture = textureLoader.load("image/Background/zodiac.png", function(texture) {
+                    texture.wrapS = THREE.ClampToEdgeWrapping;
+                    texture.wrapT = THREE.ClampToEdgeWrapping;
+                    texture.minFilter = THREE.LinearFilter;
+                });
+                const haloMaterial = new THREE.MeshBasicMaterial({
+                    map: zodiacTexture,
+                    transparent: true,
+                });
+                const zodiacHalo = new THREE.Mesh(haloGeometry, haloMaterial);
+                scene.add(zodiacHalo);
+
+
+                //Sun
                 const sungeo = new THREE.SphereGeometry(15, 32, 32);
                 const sunMaterial = new THREE.MeshBasicMaterial({
                   map: sunTexture,
@@ -173,30 +236,49 @@
                 scene.add(sun);
 
                 //Planet Gen
+
+                const createPlanetLabel = (name) => {
+                    const canvas = document.createElement('canvas');
+                    const context = canvas.getContext('2d');
+                    context.font = 'Bold 40px Arial';
+                    context.fillStyle = 'white';
+                    context.fillText(name, 0, 40);
+                    const texture = new THREE.CanvasTexture(canvas);
+                    return texture;
+                };
+
                 const path_of_planets = [];
                 
-                const generatePlanet = (size, planetTexture, x, ring, orbitParams) => {
+                const generatePlanet = (size, planetTexture, x, tilt, ring, orbitParams, name) => {
                     const planetGeometry = new THREE.SphereGeometry(size, 32, 32);
                     const planetMaterial = new THREE.ShaderMaterial({
                         uniforms:{
-                            lightPos: { value: sunlight },
+                            lightPos: { value: (sunlight) },
+                            cameraPosition: { value: camera.position },
                             lightAmbient: {value: [0.0, 0.0, 0.0, 1.0]},
                             lightDiffuse: {value: [1.0, 1.0, 1.0, 1.0]},
-                            lightSpecular: {value: [1.0, 1.0, 1.0, 1.0]},
+                            lightSpecular: {value: [0.0, 0.0, 0.0, 0.0]},
                             matAmbient: {value: [1.0, 1.0, 1.0, 1.0]},
                             matDiffuse: {value: [1.0, 1.0, 1.0, 1.0]},
-                            matSpecular: {value: [1.0, 1.0, 1.0, 1.0]},
+                            matSpecular: {value: [0.0, 0.0, 0.0, 0.0]},
                             matShininess: {value: 100},
                             texImage: { value: planetTexture },
-                            cameraPosition: { value: camera.position } // Pass the camera position
                         },
-                        vertexShader: document.getElementById("phongVS").textContent,
+                        vertexShader: document.getElementById("phongPointVS").textContent,
                         fragmentShader: document.getElementById("phongPointFS").textContent
                     });
                 
                     const planet = new THREE.Mesh(planetGeometry, planetMaterial);
+                    planet.rotation.z = THREE.MathUtils.degToRad(tilt);
                     const planetObj = new THREE.Object3D();
-                    planet.position.set(x, 0, 0);
+                    planet.position.set(orbitParams.aphelion, 0, 0);
+
+                    const labelTexture = createPlanetLabel(name);
+                    const labelMaterial = new THREE.SpriteMaterial({ map: labelTexture });
+                    const labelSprite = new THREE.Sprite(labelMaterial);
+                    labelSprite.scale.set(20, 10, 1);
+                    labelSprite.position.set(orbitParams.aphelion, size + 5, 0);
+                    planetObj.add(labelSprite);
                 
                     if (ring) {
                         const ringGeo = new THREE.RingGeometry(ring.innerRadius, ring.outerRadius, 32);
@@ -205,8 +287,9 @@
                             side: THREE.DoubleSide,
                         });
                         const ringMesh = new THREE.Mesh(ringGeo, ringMat);
+                        ringMesh.rotation.y = THREE.MathUtils.degToRad(tilt);
                         planetObj.add(ringMesh);
-                        ringMesh.position.set(x, 0, 0);
+                        ringMesh.position.set(orbitParams.aphelion, 0, 0);
                         ringMesh.rotation.x = -0.5 * Math.PI;
                     }
 
@@ -214,7 +297,7 @@
                     planetObj.add(planet);
 
                     if (orbitParams) {
-                        createEllipticalOrbit(orbitParams.semiMajorAxis, orbitParams.eccentricity, orbitParams.inclination);
+                        createEllipticalOrbit(orbitParams.aphelion, orbitParams.perihelion , orbitParams.eccentricity, orbitParams.inclination);
                     }
 
                     planetObj.orbitParams = orbitParams;
@@ -226,87 +309,130 @@
                     };
                 };
                 
-                const createEllipticalOrbit = (a, e, inclination) => {
+                const createEllipticalOrbit = (a, p, e, inclination) => {
                     const points = [];
                     const b = a * Math.sqrt(1 - e * e);
+                    const centerGap = (a + p) / 2 - a;
                     for (let i = 0; i <= 360; i += 360 / 128) {
                         const theta = (i * Math.PI) / 180;
-                        points.push(new THREE.Vector3(a * Math.cos(theta), 0, b * Math.sin(theta)));
+                        points.push(new THREE.Vector3(a * Math.cos(theta) + centerGap, 0, b * Math.sin(theta)));
                     }
-    
+                
                     const ellipseGeometry = new THREE.BufferGeometry().setFromPoints(points);
-                    const ellipseMaterial = new THREE.LineBasicMaterial({ color: 0x333333 });
+                    const ellipseMaterial = new THREE.LineBasicMaterial({ color: 0x202020 });
                     const ellipse = new THREE.LineLoop(ellipseGeometry, ellipseMaterial);
-    
+                
                     ellipse.rotation.x = THREE.MathUtils.degToRad(inclination);
-    
+                
                     scene.add(ellipse);
+                };
+
+                const generateMoon = (size, moonTexture, orbitRadius, revolutionDays, tilt = 0) => {
+                    const moonGeometry = new THREE.SphereGeometry(size, 32, 32);
+                    const moonMaterial = new THREE.ShaderMaterial({
+                        uniforms:{
+                            lightPos: { value: (sunlight) },
+                            cameraPosition: { value: camera.position },
+                            lightAmbient: {value: [0.0, 0.0, 0.0, 1.0]},
+                            lightDiffuse: {value: [1.0, 1.0, 1.0, 1.0]},
+                            lightSpecular: {value: [0.0, 0.0, 0.0, 0.0]},
+                            matAmbient: {value: [1.0, 1.0, 1.0, 1.0]},
+                            matDiffuse: {value: [1.0, 1.0, 1.0, 1.0]},
+                            matSpecular: {value: [0.0, 0.0, 0.0, 0.0]},
+                            matShininess: {value: 100},
+                            texImage: { value: moonTexture },
+                        },
+                        vertexShader: document.getElementById("phongPointVS").textContent,
+                        fragmentShader: document.getElementById("phongPointFS").textContent
+                    });
+                
+                    const moon = new THREE.Mesh(moonGeometry, moonMaterial);
+                    moon.rotation.z = THREE.MathUtils.degToRad(tilt);
+                    const moonObj = new THREE.Object3D();
+                    moon.position.set(orbitRadius, 0, 0);
+                    moonObj.add(moon);
+                
+                    moonObj.orbitRadius = orbitRadius;
+                    moonObj.revolutionDays = revolutionDays;
+                    moonObj.orbitTheta = 0;
+                
+                    return moonObj;
                 };
 
                 planets = [
                     {
-                        ...generatePlanet(3.2, mercuryTexture, 38.6, null, 
-                        { semiMajorAxis: 38.6, eccentricity: 0.2056, inclination: 7.01 }),
-                        rotaing_speed_around_sun: 0.004,
-                        self_rotation_speed: 0.004,
+                        ...generatePlanet(3.2, mercuryTexture, 38.6, 0.0352, null,
+                        { aphelion: 46.6, perihelion: 30.7 , eccentricity: 0.2056, inclination: 7.01 }, 'Mercury'),
+                        revolutionYear: 88,
+                        rotatingDay: 58.646,
+                        inipos: 536,
                     },
                     {
-                        ...generatePlanet(5.8, venusTexture, 72.4, null, 
-                        { semiMajorAxis: 72.4, eccentricity: 0.0068, inclination: 3.39 }),
-                        rotaing_speed_around_sun: 0.015,
-                        self_rotation_speed: 0.002,
+                        ...generatePlanet(5.8, venusTexture, 177.3, 72.3, null,
+                        { aphelion: 72.8, perihelion: 71.8 , eccentricity: 0.0068, inclination: 3.39 }, 'Venus'),
+                        revolutionYear: 224.7,
+                        rotatingDay: -243,
+                        inipos: 942,
                     },
                     {
-                        ...generatePlanet(6, earthTexture, 100, null, 
-                        { semiMajorAxis: 100, eccentricity: 0.0167, inclination: 0.0 }),
-                        rotaing_speed_around_sun: 0.01,
-                        self_rotation_speed: 0.02,
+                        ...generatePlanet(6, earthTexture, 100, 23.5, null,
+                        { aphelion: 101.6, perihelion: 98.3 , eccentricity: 0.0167, inclination: 0.0 }, 'Earth'),
+                        revolutionYear: 365,
+                        rotatingDay: 1,
+                        inipos: 231,
                     },
                     {
-                        ...generatePlanet(4, marsTexture, 152, null, 
-                        { semiMajorAxis: 152, eccentricity: 0.0934, inclination: 1.85 }),
-                        rotaing_speed_around_sun: 0.008,
-                        self_rotation_speed: 0.018,
+                        ...generatePlanet(4, marsTexture, 152.4, 25.19, null,
+                        { aphelion: 166.6, perihelion: 138.1 , eccentricity: 0.0934, inclination: 1.85 }, 'Mars'),
+                        revolutionYear: 686.971,
+                        rotatingDay: 1,
+                        inipos: 23,
                     },
                     {
-                        ...generatePlanet(12, jupiterTexture, 520, null, 
-                        { semiMajorAxis: 520, eccentricity: 0.0484, inclination: 1.31 }),
-                        rotaing_speed_around_sun: 0.002,
-                        self_rotation_speed: 0.04,
+                        ...generatePlanet(12, jupiterTexture, 520.2, 3.13, null,
+                        { aphelion: 545.4, perihelion: 495 , eccentricity: 0.0484, inclination: 1.31 }, 'Jupiter'),
+                        revolutionYear: 4332.59,
+                        rotatingDay: 0.415,
+                        inipos: 302,
                     },
                     {
-                        ...generatePlanet(10, saturnTexture, 958, {
+                        ...generatePlanet(10, saturnTexture, 955.4, 26.73, {
                             innerRadius: 10,
                             outerRadius: 20,
                             ringmat: saturnRingTexture,
-                        },{ semiMajorAxis: 958, eccentricity: 0.0541, inclination: 2.49 }),
-                        rotaing_speed_around_sun: 0.0009,
-                        self_rotation_speed: 0.038,
+                        },
+                        { aphelion: 1005.4, perihelion: 902.1 , eccentricity: 0.0541, inclination: 2.49 }, 'Saturn'),
+                        revolutionYear: 10759.22,
+                        rotatingDay: 0.438,
+                        inipos: 152,
                     },
                     {
-                        ...generatePlanet(7, uranusTexture, 1920, {
+                        ...generatePlanet(7, uranusTexture, 1921.8, 97.77, {
                             innerRadius: 7,
                             outerRadius: 12,
                             ringmat: uranusRingTexture,
                         },
-                        { semiMajorAxis: 1920, eccentricity: 0.0472, inclination: 0.77 }),
-                        rotaing_speed_around_sun: 0.0004,
-                        self_rotation_speed: 0.03,
+                        { aphelion: 2009.6, perihelion: 1828.6 , eccentricity: 0.0472, inclination: 0.77 }, 'Uranus'),
+                        revolutionYear: 30688.5,
+                        rotatingDay: 0.7165,
+                        inipos: 443,
                     },
                     {
-                        ...generatePlanet(7, neptuneTexture, 3010, null,
-                        { semiMajorAxis: 3010, eccentricity: 0.0086, inclination: 1.77 }),
-                        rotaing_speed_around_sun: 0.0001,
-                        self_rotation_speed: 0.032,
+                        ...generatePlanet(7, neptuneTexture, 3006.9, 28.32, null,
+                        { aphelion: 3033, perihelion: 2981 , eccentricity: 0.0086, inclination: 1.77 }, 'Neptune'),
+                        revolutionYear: 60182,
+                        rotatingDay: 0.6713,
+                        inipos: 492,
                     },
                     {
-                        ...generatePlanet(2.8, plutoTexture, 3920, null, 
-                        { semiMajorAxis: 3920, eccentricity: 0.2488, inclination: 17 }),
-                        rotaing_speed_around_sun: 0.0007,
-                        self_rotation_speed: 0.008,
+                        ...generatePlanet(2.8, plutoTexture, 3948.1, 115.6, null,
+                        { aphelion: 4930.5, perihelion: 2965.8 , eccentricity: 0.2488, inclination: 17 }, 'Pluto'),
+                        revolutionYear: 90560,
+                        rotatingDay: 6.387,
+                        inipos: 18,
                     },
                 ];
-            }
+            };
 
             function onWindowResize(){
                 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -333,40 +459,50 @@
                 CentorPlanet = 'Sun';
             };
 
+            document.getElementById('timeRateSlider').addEventListener('input', (event) => {
+                timeRate = event.target.value;
+            });
+
             function animate(){
                 requestAnimationFrame(animate);
 
                 sun.rotateY(0.01);
                 
                 planets.forEach(
-                    ({ planetObj, planet, rotaing_speed_around_sun, self_rotation_speed }) => {
-                        planet.rotateY(self_rotation_speed);
+                    ({ planetObj, planet, revolutionYear, rotatingDay ,inipos ,}) => {
+                        planet.rotateY(1/rotatingDay);
 
                         if (planetObj.orbitParams) {
-                            const a = planetObj.orbitParams.semiMajorAxis;
+                            const a = planetObj.orbitParams.aphelion;
+                            const p = planetObj.orbitParams.perihelion
                             const e = planetObj.orbitParams.eccentricity;
                             const b = a * Math.sqrt(1 - e * e);
-                            const theta = planetObj.orbitTheta;
+                            let theta = planetObj.orbitTheta + (inipos);
 
-                            const x = a * Math.cos(theta);
+                            const centerGap = (a + p)/2 - a;
+                            const x = a * Math.cos(theta) + centerGap;
+                            const y = 0;
                             const z = b * Math.sin(theta);
 
-                            const y = 0;
                             const rotationMatrix = new THREE.Matrix4().makeRotationX(THREE.MathUtils.degToRad(planetObj.orbitParams.inclination));
                             const position = new THREE.Vector3(x, y, z).applyMatrix4(rotationMatrix);
 
+                            const r = Math.sqrt(x * x + z * z);
+                            const velocityFactor = Math.sqrt((1 + e) / (1 - e * Math.cos(theta)));
+                            const adjustedAngularSpeed = 1/revolutionYear * velocityFactor;
+
                             planetObj.position.set(position.x - a, position.y, position.z);
-                            planetObj.orbitTheta += rotaing_speed_around_sun;
+                            planetObj.orbitTheta += (adjustedAngularSpeed * timeRate);
                         }
                     }
                 );
-
+                
                 if (CentorPlanet == 'Earth') {
                     changedView = true;
 
                     controls.dispose();
                     const earthPosition = planets[2].planetObj.position.clone();
-                    earthPosition.x += planets[2].planetObj.orbitParams.semiMajorAxis
+                    earthPosition.x += planets[2].planetObj.orbitParams.aphelion
 
                     camera.position.copy(earthPosition);
             
@@ -377,10 +513,6 @@
                     console.info("lookAtPosition",SELine);
                     camera.lookAt(SELine);
 
-
-                    //camera.lookAt();
-                    
-                    controls.update();
                 } else {
                     if (changedView) {
                         camera.position.set(0, 100, 100);
@@ -392,7 +524,7 @@
                     controls.update();
                     //console.info("EarthPos",planets[1].planetObj.position);
                 }
-                controls.update();
+                //controls.update();
                 renderer.render(scene, camera);
             }
             animate();
